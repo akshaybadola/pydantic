@@ -30,6 +30,7 @@ from .fields import (
     SHAPE_ITERABLE,
     SHAPE_LIST,
     SHAPE_MAPPING,
+    SHAPE_CALLABLE,
     SHAPE_SEQUENCE,
     SHAPE_SET,
     SHAPE_SINGLETON,
@@ -441,6 +442,48 @@ def field_type_schema(
         if field.shape in {SHAPE_SET, SHAPE_FROZENSET}:
             f_schema['uniqueItems'] = True
 
+    elif field.shape == SHAPE_CALLABLE:
+        f_schema = {'type': 'object',
+                    'x-type': 'function'}
+        args_schema, f_definitions, f_nested_models = field_singleton_schema(
+            field.args_field,
+            by_alias=by_alias,
+            model_name_map=model_name_map,
+            ref_prefix=ref_prefix,
+            ref_template=ref_template,
+            known_models=known_models,
+        )
+        definitions.update(f_definitions)
+        nested_models.update(f_nested_models)
+        ret_schema, f_definitions, f_nested_models = field_singleton_schema(
+            field.ret_field,
+            by_alias=by_alias,
+            model_name_map=model_name_map,
+            ref_prefix=ref_prefix,
+            ref_template=ref_template,
+            known_models=known_models,
+        )
+        definitions.update(f_definitions)
+        nested_models.update(f_nested_models)
+        f_schema["additionalProperties"] = {}
+        # HACK: With Tuple as sub_fields, I get anyOf. Remove to get dict
+        #       This doesn't support Callback protocols
+        #       https://mypy.readthedocs.io/en/stable/protocols.html#callback-protocols
+        f_schema["additionalProperties"] = {}
+        if not args_schema:
+            f_schema["additionalProperties"]["args"] = {"type": "object"}
+        elif 'anyOf' in args_schema:
+            f_schema["additionalProperties"]["args"] = {
+                "type": "object",
+                "additionalProperties": {i: x for i, x in enumerate(args_schema['anyOf'])}
+            }
+        else:                   # single item
+            f_schema["additionalProperties"]["args"] = {
+                "type": "object",
+                "additionalProperties": {0: args_schema}
+            }
+        f_schema["additionalProperties"]["retval"] = ret_schema
+
     elif field.shape == SHAPE_MAPPING:
         f_schema = {'type': 'object'}
         key_field = cast(ModelField, field.key_field)
@@ -769,8 +812,8 @@ def field_singleton_schema(  # noqa: C901 (ignore complexity)
         return {}, definitions, nested_models  # no restrictions
     if field.type_ in NONE_TYPES:
         return {'type': 'null'}, definitions, nested_models
-    if is_callable_type(field.type_):
-        raise SkipField(f'Callable {field.name} was excluded from schema since JSON schema has no equivalent type.')
+    # if is_callable_type(field.type_):
+    #     raise SkipField(f'Callable {field.name} was excluded from schema since JSON schema has no equivalent type.')
     f_schema: Dict[str, Any] = {}
     if field.field_info is not None and field.field_info.const:
         f_schema['const'] = field.default

@@ -211,6 +211,7 @@ SHAPE_FROZENSET = 8
 SHAPE_ITERABLE = 9
 SHAPE_GENERIC = 10
 SHAPE_DEQUE = 11
+SHAPE_CALLABLE = 12
 SHAPE_NAME_LOOKUP = {
     SHAPE_LIST: 'List[{}]',
     SHAPE_SET: 'Set[{}]',
@@ -219,6 +220,7 @@ SHAPE_NAME_LOOKUP = {
     SHAPE_FROZENSET: 'FrozenSet[{}]',
     SHAPE_ITERABLE: 'Iterable[{}]',
     SHAPE_DEQUE: 'Deque[{}]',
+    SHAPE_CALLABLE: 'Callable[{}]'
 }
 
 
@@ -227,6 +229,8 @@ class ModelField(Representation):
         'type_',
         'outer_type_',
         'sub_fields',
+        'args_field',
+        'ret_field',
         'key_field',
         'validators',
         'pre_validators',
@@ -274,6 +278,8 @@ class ModelField(Representation):
 
         self.allow_none: bool = False
         self.validate_always: bool = False
+        self.args_field: Optional[str] = None
+        self.ret_field: Optional[List[Any]] = None
         self.sub_fields: Optional[List[ModelField]] = None
         self.key_field: Optional[ModelField] = None
         self.validators: 'ValidatorsList' = []
@@ -425,6 +431,32 @@ class ModelField(Representation):
                 self.allow_none = True
             return
         if origin is Callable:
+            maybe_args = get_args(self.type_)
+            if not maybe_args:
+                args, retval = Any, Any
+            else:
+                args, retval = maybe_args
+            if args == Ellipsis:
+                args = Any
+            # if maybe_args:
+            #     args, retval = maybe_args
+            # else:
+            #     args, retval = Ellipsis, None
+            # if args == Ellipsis:
+            #     self.args_field = self._create_sub_type(Ellipsis,
+            #                                             f'{self.name}_{display_as_type(args)}')
+            # else:
+            if args == Any:
+                self.args_field = self._create_sub_type(Any,
+                                                        f'{self.name}_{display_as_type(args)}')
+            else:
+                self.args_field = self._create_sub_type(Dict[int, Any],
+                                                        f'{self.name}_{display_as_type(args)}')
+                self.args_field.sub_fields = tuple([self._create_sub_type(t, f'{self.name}_{display_as_type(t)}')
+                                                    for t in args])
+            self.ret_field = self._create_sub_type(retval,
+                                                   f'{self.name}_{display_as_type(retval)}')
+            self.shape = SHAPE_CALLABLE
             return
         if origin is Union:
             types_ = []
@@ -594,6 +626,8 @@ class ModelField(Representation):
             v, errors = self._validate_singleton(v, values, loc, cls)
         elif self.shape == SHAPE_MAPPING:
             v, errors = self._validate_mapping(v, values, loc, cls)
+        elif self.shape == SHAPE_CALLABLE:
+            v, errors = self._validate_callable(v, values, loc, cls)
         elif self.shape == SHAPE_TUPLE:
             v, errors = self._validate_tuple(v, values, loc, cls)
         elif self.shape == SHAPE_ITERABLE:
@@ -711,6 +745,35 @@ class ModelField(Representation):
             return tuple(result), None
 
     def _validate_mapping(
+        self, v: Any, values: Dict[str, Any], loc: 'LocStr', cls: Optional['ModelOrDc']
+    ) -> 'ValidateReturn':
+        try:
+            v_iter = dict_validator(v)
+        except TypeError as exc:
+            return v, ErrorWrapper(exc, loc)
+
+        loc = loc if isinstance(loc, tuple) else (loc,)
+        result, errors = {}, []
+        for k, v_ in v_iter.items():
+            v_loc = *loc, '__key__'
+            key_result, key_errors = self.key_field.validate(k, values, loc=v_loc, cls=cls)  # type: ignore
+            if key_errors:
+                errors.append(key_errors)
+                continue
+
+            v_loc = *loc, k
+            value_result, value_errors = self._validate_singleton(v_, values, v_loc, cls)
+            if value_errors:
+                errors.append(value_errors)
+                continue
+
+            result[key_result] = value_result
+        if errors:
+            return v, errors
+        else:
+            return result, None
+
+    def _validate_callable(
         self, v: Any, values: Dict[str, Any], loc: 'LocStr', cls: Optional['ModelOrDc']
     ) -> 'ValidateReturn':
         try:
