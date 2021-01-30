@@ -812,8 +812,8 @@ def field_singleton_schema(  # noqa: C901 (ignore complexity)
         return {}, definitions, nested_models  # no restrictions
     if field.type_ in NONE_TYPES:
         return {'type': 'null'}, definitions, nested_models
-    # if is_callable_type(field.type_):
-    #     raise SkipField(f'Callable {field.name} was excluded from schema since JSON schema has no equivalent type.')
+    if is_callable_type(field.type_):
+        warnings.warn(f'Callable {field.name} is hacky and partially implemented.')
     f_schema: Dict[str, Any] = {}
     if field.field_info is not None and field.field_info.const:
         f_schema['const'] = field.default

@@ -776,31 +776,52 @@ class ModelField(Representation):
     def _validate_callable(
         self, v: Any, values: Dict[str, Any], loc: 'LocStr', cls: Optional['ModelOrDc']
     ) -> 'ValidateReturn':
-        try:
-            v_iter = dict_validator(v)
-        except TypeError as exc:
-            return v, ErrorWrapper(exc, loc)
-
-        loc = loc if isinstance(loc, tuple) else (loc,)
-        result, errors = {}, []
-        for k, v_ in v_iter.items():
-            v_loc = *loc, '__key__'
-            key_result, key_errors = self.key_field.validate(k, values, loc=v_loc, cls=cls)  # type: ignore
-            if key_errors:
-                errors.append(key_errors)
-                continue
-
-            v_loc = *loc, k
-            value_result, value_errors = self._validate_singleton(v_, values, v_loc, cls)
-            if value_errors:
-                errors.append(value_errors)
-                continue
-
-            result[key_result] = value_result
-        if errors:
-            return v, errors
+        import inspect
+        if callable(v):
+            if self.args_field.sub_fields is None:
+                return v, None
+            else:
+                sig = inspect.signature(v)
+                expected = len(self.args_field.sub_fields)
+                given = len(sig.parameters.keys())
+                if expected == given:
+                    # annots = v.__annotations__
+                    # if annots:
+                    #     # validate annotations
+                    #     self.args_filed.sub_fields
+                    return v, None
+                else:
+                    return v, [ValueError("Invalid number of parameters. " +
+                                          f"Expected {expected}, given {given}")]
         else:
-            return result, None
+            return v, [TypeError(f"Not a Callable {v}")]
+        # NOTE: We don't validate callable as of now
+        # import pytest; pytest.set_trace()
+        # try:
+        #     v_iter = dict_validator(v)
+        # except TypeError as exc:
+        #     return v, ErrorWrapper(exc, loc)
+
+        # loc = loc if isinstance(loc, tuple) else (loc,)
+        # result, errors = {}, []
+        # for k, v_ in v_iter.items():
+        #     v_loc = *loc, '__key__'
+        #     key_result, key_errors = self.key_field.validate(k, values, loc=v_loc, cls=cls)  # type: ignore
+        #     if key_errors:
+        #         errors.append(key_errors)
+        #         continue
+
+        #     v_loc = *loc, k
+        #     value_result, value_errors = self._validate_singleton(v_, values, v_loc, cls)
+        #     if value_errors:
+        #         errors.append(value_errors)
+        #         continue
+
+        #     result[key_result] = value_result
+        # if errors:
+        #     return v, errors
+        # else:
+        #     return result, None
 
     def _validate_singleton(
         self, v: Any, values: Dict[str, Any], loc: 'LocStr', cls: Optional['ModelOrDc']
