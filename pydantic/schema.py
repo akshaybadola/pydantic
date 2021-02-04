@@ -465,24 +465,24 @@ def field_type_schema(
         )
         definitions.update(f_definitions)
         nested_models.update(f_nested_models)
-        f_schema["additionalProperties"] = {}
+        f_schema["properties"] = {}
         # HACK: With Tuple as sub_fields, I get anyOf. Remove to get dict
         #       This doesn't support Callback protocols
         #       https://mypy.readthedocs.io/en/stable/protocols.html#callback-protocols
-        f_schema["additionalProperties"] = {}
+        f_schema["properties"] = {}
         if not args_schema:
-            f_schema["additionalProperties"]["args"] = {"type": "object"}
+            f_schema["properties"]["args"] = {"type": "object"}
         elif 'anyOf' in args_schema:
-            f_schema["additionalProperties"]["args"] = {
+            f_schema["properties"]["args"] = {
                 "type": "object",
-                "additionalProperties": {i: x for i, x in enumerate(args_schema['anyOf'])}
+                "properties": {i: x for i, x in enumerate(args_schema['anyOf'])}
             }
         else:                   # single item
-            f_schema["additionalProperties"]["args"] = {
+            f_schema["properties"]["args"] = {
                 "type": "object",
-                "additionalProperties": {0: args_schema}
+                "properties": {0: args_schema}
             }
-        f_schema["additionalProperties"]["retval"] = ret_schema
+        f_schema["properties"]["retval"] = ret_schema
 
     elif field.shape == SHAPE_MAPPING:
         f_schema = {'type': 'object'}
@@ -808,6 +808,8 @@ def field_singleton_schema(  # noqa: C901 (ignore complexity)
             ref_template=ref_template,
             known_models=known_models,
         )
+    if lenient_issubclass(field.type_, property):
+        return {}, definitions, nested_models
     if field.type_ is Any or field.type_.__class__ == TypeVar:
         return {}, definitions, nested_models  # no restrictions
     if field.type_ in NONE_TYPES:
