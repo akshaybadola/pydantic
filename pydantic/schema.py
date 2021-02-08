@@ -811,7 +811,7 @@ def field_singleton_schema(  # noqa: C901 (ignore complexity)
     if lenient_issubclass(field.type_, property):
         return {}, definitions, nested_models
     if field.type_ is Any or field.type_.__class__ == TypeVar:
-        return {}, definitions, nested_models  # no restrictions
+        return {"type": "object"}, definitions, nested_models  # no restrictions
     if field.type_ in NONE_TYPES:
         return {'type': 'null'}, definitions, nested_models
     if is_callable_type(field.type_):
